@@ -568,6 +568,8 @@ interface PackagePlan {
   trafficLimitSpeed: string
   price: number
   billingCycle: number
+  trafficResetEnabled: boolean
+  trafficResetPrice: number
   monthlyPrice: number
   isActive: boolean
   isSoldOut: boolean
@@ -599,6 +601,8 @@ const planForm = ref({
   trafficLimitSpeed: 10, // Mbps
   price: 0,
   billingCycle: 1,  // 计费周期（月），默认月付
+  trafficResetEnabled: false,
+  trafficResetPrice: 0,
   status: 'active' as PackagePlanStatus,
   sortOrder: 0,
   slaGuarantee: null as number | null
@@ -739,6 +743,8 @@ function openCreatePlanModal(): void {
     trafficLimitSpeed: 10, // Mbps
     price: 0,
     billingCycle: 1,  // 默认月付
+    trafficResetEnabled: false,
+    trafficResetPrice: 0,
     status: 'active',
     sortOrder: plans.value.length,
     slaGuarantee: null
@@ -762,6 +768,8 @@ function openEditPlanModal(plan: PackagePlan): void {
     trafficLimitSpeed: bytesToMbps(plan.trafficLimitSpeed),
     price: plan.price / 100,
     billingCycle: plan.billingCycle,
+    trafficResetEnabled: plan.trafficResetEnabled,
+    trafficResetPrice: plan.trafficResetPrice / 100,
     status: getPlanStatus(plan),
     sortOrder: plan.sortOrder,
     slaGuarantee: plan.slaGuarantee
@@ -805,6 +813,14 @@ async function savePlan(): Promise<void> {
     return
   }
   planForm.value.price = priceCents / 100
+  const trafficResetPriceCents = planForm.value.trafficResetEnabled
+    ? normalizePlanPriceCents(planForm.value.trafficResetPrice)
+    : 0
+  if (trafficResetPriceCents === null) {
+    toast.error(t('resources.plans.trafficResetPriceRangeError', { max: MAX_PACKAGE_PLAN_PRICE.toFixed(2) }))
+    return
+  }
+  planForm.value.trafficResetPrice = trafficResetPriceCents / 100
 
   planFormLoading.value = true
   try {
@@ -823,6 +839,8 @@ async function savePlan(): Promise<void> {
       trafficLimitSpeed: mbpsToBytes(planForm.value.trafficLimitSpeed) || '0',
       price: priceCents,
       billingCycle: planForm.value.billingCycle,
+      trafficResetEnabled: planForm.value.trafficResetEnabled,
+      trafficResetPrice: trafficResetPriceCents,
       isActive: planForm.value.status !== 'inactive',
       isSoldOut: planForm.value.status === 'soldOut',
       sortOrder: planForm.value.sortOrder,
@@ -1662,6 +1680,12 @@ function getBillingCycleLabel(months: number): string {
                         <span class="text-themed-muted">SLA保证:</span>
                         <span class="ml-1 font-medium" :class="themeStore.isDark ? 'text-green-400' : 'text-green-600'">{{ plan.slaGuarantee }}%</span>
                       </div>
+                      <div v-if="plan.trafficResetEnabled" class="mt-2 text-xs">
+                        <span class="text-themed-muted">{{ t('resources.plans.trafficReset') }}:</span>
+                        <span class="ml-1 font-medium" :class="themeStore.isDark ? 'text-cyan-300' : 'text-cyan-700'">
+                          ¥{{ formatPrice(plan.trafficResetPrice) }}/{{ t('resources.plans.perReset') }}
+                        </span>
+                      </div>
                     </div>
                     <div class="flex items-center gap-1 flex-shrink-0">
                       <button
@@ -1805,6 +1829,42 @@ function getBillingCycleLabel(months: number): string {
                     <label class="block text-xs font-medium text-themed-muted mb-1.5">SLA保证 (%)</label>
                     <input v-model.number="planForm.slaGuarantee" type="number" min="1" max="100" step="0.01" class="input" placeholder="如 99.9" />
                   </div>
+                </div>
+                <div
+                  class="mt-4 rounded-lg border p-3"
+                  :class="themeStore.isDark ? 'border-gray-700 bg-gray-900/40' : 'border-gray-200 bg-white'"
+                >
+                  <div class="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
+                    <label class="flex min-w-0 cursor-pointer items-start gap-3">
+                      <input
+                        v-model="planForm.trafficResetEnabled"
+                        type="checkbox"
+                        class="mt-0.5 h-4 w-4 flex-shrink-0 rounded border-gray-300 text-indigo-600 focus:ring-indigo-500"
+                      />
+                      <span class="min-w-0">
+                        <span class="block text-sm font-medium" :class="themeStore.isDark ? 'text-gray-200' : 'text-gray-800'">
+                          {{ t('resources.plans.allowTrafficReset') }}
+                        </span>
+                        <span class="mt-1 block text-xs leading-5 text-themed-muted">
+                          {{ t('resources.plans.allowTrafficResetHint') }}
+                        </span>
+                      </span>
+                    </label>
+                    <div v-if="planForm.trafficResetEnabled" class="w-full sm:w-48">
+                      <label class="block text-xs font-medium text-themed-muted mb-1.5">{{ t('resources.plans.trafficResetPrice') }} (元)</label>
+                      <input
+                        v-model.number="planForm.trafficResetPrice"
+                        type="number"
+                        min="0"
+                        :max="MAX_PACKAGE_PLAN_PRICE"
+                        step="0.01"
+                        class="input"
+                      />
+                    </div>
+                  </div>
+                  <p v-if="planForm.trafficResetEnabled" class="mt-2 text-xs leading-5 text-themed-muted sm:ml-7">
+                    {{ t('resources.plans.trafficResetPriceHint') }}
+                  </p>
                 </div>
               </div>
 

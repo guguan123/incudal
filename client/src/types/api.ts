@@ -1548,6 +1548,8 @@ export interface PackagePlan {
   price: number
   billingCycle: number // 账期（月）
   setupFee?: number    // 开通费（分）
+  trafficResetEnabled?: boolean
+  trafficResetPrice?: number
   cpu: number
   memory: number
   disk: number

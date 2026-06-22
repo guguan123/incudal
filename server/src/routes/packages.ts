@@ -74,6 +74,12 @@ function validatePackagePlanPrice(value: unknown): string | null {
   return null
 }
 
+function normalizeTrafficResetPrice(enabled: boolean | undefined, price: unknown): { value: number; error: string | null } {
+  const value = enabled ? (price ?? 0) : 0
+  const error = validatePackagePlanPrice(value)
+  return { value: typeof value === 'number' ? value : 0, error }
+}
+
 function normalizePublicPackageMaxInstances(value: unknown): number {
   return validatePublicPackageMaxInstances(value) ? value : PUBLIC_PACKAGE_MAX_INSTANCES_MIN
 }
@@ -1964,6 +1970,8 @@ export default async function packageRoutes(fastify: FastifyInstance) {
         price: Number(plan.price),
         billingCycle: plan.billingCycle,
         setupFee: Number(plan.setupFee),
+        trafficResetEnabled: plan.trafficResetEnabled,
+        trafficResetPrice: Number(plan.trafficResetPrice),
         monthlyPrice: db.calculateMonthlyPrice(plan),
         isActive: plan.isActive,
         isSoldOut: plan.isSoldOut,
@@ -1992,6 +2000,8 @@ export default async function packageRoutes(fastify: FastifyInstance) {
       price: number
       billingCycle?: number
       setupFee?: number
+      trafficResetEnabled?: boolean
+      trafficResetPrice?: number
       isActive?: boolean
       isSoldOut?: boolean
       sortOrder?: number
@@ -2018,7 +2028,7 @@ export default async function packageRoutes(fastify: FastifyInstance) {
       return reply.code(403).send(apiError(ErrorCode.FORBIDDEN))
     }
 
-    const { name, description, cpu, memory, disk, portLimit, snapshotLimit, backupLimit, siteLimit, swapSize, trafficLimit, trafficLimitSpeed, price, billingCycle, isActive, isSoldOut, sortOrder, slaGuarantee } = request.body
+    const { name, description, cpu, memory, disk, portLimit, snapshotLimit, backupLimit, siteLimit, swapSize, trafficLimit, trafficLimitSpeed, price, billingCycle, trafficResetEnabled, trafficResetPrice, isActive, isSoldOut, sortOrder, slaGuarantee } = request.body
     const normalizedSwapSize = pkg.instance_type === 'vm' ? 0 : swapSize
 
     if (isActive !== undefined && typeof isActive !== 'boolean') {
@@ -2026,6 +2036,9 @@ export default async function packageRoutes(fastify: FastifyInstance) {
     }
     if (isSoldOut !== undefined && typeof isSoldOut !== 'boolean') {
       return reply.code(400).send({ error: 'isSoldOut 必须为布尔值' })
+    }
+    if (trafficResetEnabled !== undefined && typeof trafficResetEnabled !== 'boolean') {
+      return reply.code(400).send({ error: 'trafficResetEnabled 必须为布尔值' })
     }
 
     // 验证方案名称：允许 emoji，但仍禁止危险字符
@@ -2057,6 +2070,10 @@ export default async function packageRoutes(fastify: FastifyInstance) {
     const priceError = validatePackagePlanPrice(price)
     if (priceError) {
       return reply.code(400).send({ error: priceError })
+    }
+    const normalizedTrafficResetPrice = normalizeTrafficResetPrice(trafficResetEnabled, trafficResetPrice)
+    if (normalizedTrafficResetPrice.error) {
+      return reply.code(400).send({ error: normalizedTrafficResetPrice.error })
     }
 
     // 验证 SLA 保证值
@@ -2095,6 +2112,8 @@ export default async function packageRoutes(fastify: FastifyInstance) {
         price,
         billingCycle,
         setupFee: 0,  // 开通费固定为0
+        trafficResetEnabled: trafficResetEnabled ?? false,
+        trafficResetPrice: normalizedTrafficResetPrice.value,
         isActive,
         isSoldOut,
         sortOrder,
@@ -2138,6 +2157,8 @@ export default async function packageRoutes(fastify: FastifyInstance) {
       price?: number
       billingCycle?: number
       setupFee?: number
+      trafficResetEnabled?: boolean
+      trafficResetPrice?: number
       isActive?: boolean
       isSoldOut?: boolean
       sortOrder?: number
@@ -2171,7 +2192,7 @@ export default async function packageRoutes(fastify: FastifyInstance) {
       return reply.code(404).send({ error: '方案不存在' })
     }
 
-    const { name, description, cpu, memory, disk, portLimit, snapshotLimit, backupLimit, siteLimit, swapSize, trafficLimit, trafficLimitSpeed, price, billingCycle, isActive, isSoldOut, sortOrder, slaGuarantee } = request.body
+    const { name, description, cpu, memory, disk, portLimit, snapshotLimit, backupLimit, siteLimit, swapSize, trafficLimit, trafficLimitSpeed, price, billingCycle, trafficResetEnabled, trafficResetPrice, isActive, isSoldOut, sortOrder, slaGuarantee } = request.body
     const normalizedSwapSize = pkg.instance_type === 'vm' ? 0 : swapSize
 
     if (isActive !== undefined && typeof isActive !== 'boolean') {
@@ -2179,6 +2200,9 @@ export default async function packageRoutes(fastify: FastifyInstance) {
     }
     if (isSoldOut !== undefined && typeof isSoldOut !== 'boolean') {
       return reply.code(400).send({ error: 'isSoldOut 必须为布尔值' })
+    }
+    if (trafficResetEnabled !== undefined && typeof trafficResetEnabled !== 'boolean') {
+      return reply.code(400).send({ error: 'trafficResetEnabled 必须为布尔值' })
     }
 
     let planName: string | undefined
@@ -2215,6 +2239,14 @@ export default async function packageRoutes(fastify: FastifyInstance) {
       const priceError = validatePackagePlanPrice(price)
       if (priceError) {
         return reply.code(400).send({ error: priceError })
+      }
+    }
+    const nextTrafficResetEnabled = trafficResetEnabled ?? existingPlan.trafficResetEnabled
+    const nextTrafficResetPrice = trafficResetPrice ?? Number(existingPlan.trafficResetPrice)
+    const normalizedTrafficResetPrice = normalizeTrafficResetPrice(nextTrafficResetEnabled, nextTrafficResetPrice)
+    if (trafficResetPrice !== undefined || trafficResetEnabled !== undefined) {
+      if (normalizedTrafficResetPrice.error) {
+        return reply.code(400).send({ error: normalizedTrafficResetPrice.error })
       }
     }
 
@@ -2254,6 +2286,8 @@ export default async function packageRoutes(fastify: FastifyInstance) {
       if (price !== undefined) updateData.price = price
       if (billingCycle !== undefined) updateData.billingCycle = billingCycle
       // setupFee 已废弃，不再接受更新
+      if (trafficResetEnabled !== undefined) updateData.trafficResetEnabled = trafficResetEnabled
+      if (trafficResetPrice !== undefined || trafficResetEnabled !== undefined) updateData.trafficResetPrice = normalizedTrafficResetPrice.value
       if (isActive !== undefined) updateData.isActive = isActive
       if (isSoldOut !== undefined) updateData.isSoldOut = isSoldOut
       if (sortOrder !== undefined) updateData.sortOrder = sortOrder
